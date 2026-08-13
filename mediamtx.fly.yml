@@ -1,0 +1,93 @@
+###############################################################################
+# mediamtx.fly.yml — PrintCam (Fly.io variant)
+#
+# Bu, printcam/mediamtx.yml ile AYNI protokol ayarlarına sahip ama Fly.io'da
+# çalışmak için bir farkı var: RTMP artık LAN'da değil, doğrudan internete
+# açık (Fly'ın public IP'si üzerinden). Bu yüzden publish (yayın gönderme)
+# işlemi kimlik doğrulamalı — aksi halde URL'i bulan herkes "printer"
+# path'ine sahte bir yayın push edebilir.
+#
+# İzleme (read/playback) hâlâ kimliksiz ve herkese açık — public HLS'in
+# amacı bu.
+#
+# Docker imajı içine COPY ile /mediamtx.yml olarak kopyalanır (bkz. Dockerfile).
+# RTMP şifresi bu dosyada YOK — Fly secret'ı olarak çalışma zamanında
+# MTX_AUTHINTERNALUSERS_0_PASS environment variable'ıyla enjekte edilir
+# (bkz. README §Yol A, `flyctl secrets set`).
+###############################################################################
+
+logLevel: info
+logDestinations: [stdout]
+
+###############################
+# Disabled protocols / servers
+###############################
+rtsp: no
+webrtc: no
+srt: no
+moq: no
+api: no
+metrics: no
+pprof: no
+playback: no
+
+###############################
+# RTMP server (ingest from OBS — artık internete açık, bu yüzden auth şart)
+###############################
+rtmp: yes
+rtmpAddress: :1935
+rtmpEncryption: "no"
+
+###############################
+# HLS server (public output)
+###############################
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]
+hlsEncryption: no             # TLS, Fly'ın edge proxy'si tarafından *.fly.dev üzerinde otomatik sağlanır
+# hlsVariant: NOT "lowLatency" — see mediamtx.yml for why (LL-HLS's
+# PART-TARGET-DURATION drifts on a live feed and can break iOS Safari).
+hlsVariant: fmp4
+hlsSegmentDuration: 1s
+hlsSegmentCount: 7
+hlsSegmentMaxSize: 50M
+hlsAlwaysRemux: no
+hlsTrustedProxies: []
+
+###############################
+# Authentication
+#
+# - "obs" kullanıcısı: sadece "printer" path'ine publish edebilir. Şifre bu
+#   dosyada yok — MTX_AUTHINTERNALUSERS_0_PASS Fly secret'ı ile enjekte edilir.
+# - "any" kullanıcısı: şifresiz, herkes read + playback yapabilir (public HLS).
+#   publish YETKİSİ YOK — bu satır olmadan varsayılan MediaMTX config'i
+#   publish'i de herkese açardı.
+###############################
+authMethod: internal
+authInternalUsers:
+  - user: obs
+    pass: SET_VIA_FLY_SECRET
+    ips: []
+    permissions:
+      - action: publish
+        path: printer
+
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: read
+        path:
+      - action: playback
+        path:
+
+###############################
+# Paths
+#
+# authInternalUsers only controls WHO may publish/read — the path itself
+# still has to be declared, otherwise MediaMTX rejects publishers with
+# "path is not configured" before auth is even evaluated (there is no
+# catch-all "all_others" path here, unlike the stock default config).
+###############################
+paths:
+  printer: {}

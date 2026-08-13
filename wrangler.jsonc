@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "printcam",
+  "compatibility_date": "2026-08-12",
+  "main": "worker.js",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "viewer",
+    "binding": "ASSETS"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "VIEWER_PRESENCE",
+        "class_name": "ViewerPresence"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["ViewerPresence"]
+    }
+  ],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}

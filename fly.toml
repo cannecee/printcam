@@ -1,0 +1,35 @@
+# PrintCam — Fly.io app config.
+#
+# "app" adını değiştir: Fly.io'da uygulama adları global olarak benzersiz
+# olmalı (örn. "printcam-canece"). `flyctl apps create <ad>` ile önce adı
+# ayırman gerekiyor — README §Yol A'ya bak.
+app = "printcam-canece"
+primary_region = "fra"   # Türkiye'ye en yakın büyük Fly bölgelerinden biri; istersen değiştir
+
+[build]
+
+# HLS çıktısı (public, herkes izleyebilir). Fly'ın edge proxy'si *.fly.dev
+# için TLS'i otomatik sağlar (force_https=true ile http->https yönlendirir).
+[http_service]
+  internal_port = 8888
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+# RTMP girişi (OBS push). Kimlik doğrulamalı (mediamtx.fly.yml içindeki
+# authInternalUsers) çünkü artık internete açık. Aynı auto-stop politikası:
+# kimse yayın yapmıyorsa makine durur, OBS bağlanmaya çalışınca uyanır.
+[[services]]
+  protocol = "tcp"
+  internal_port = 1935
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[services.ports]]
+    port = 1935
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

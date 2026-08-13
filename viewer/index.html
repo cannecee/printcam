@@ -1,0 +1,1104 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>PiranArt — Canlı Yazıcı Kamerası</title>
+<meta name="color-scheme" content="dark" />
+<style>
+  /* ---------------------------------------------------------------------
+     Identity: dark "machine telemetry" panel, not a generic media player.
+     - near-black carbon background + faint CSS-only grid, no images
+     - Bambu-green for LIVE, amber for CONNECTING, red for DISCONNECTED
+     - monospace system stack (technical/instrument feel), no font CDN
+     ------------------------------------------------------------------- */
+  :root {
+    --bg: #0a0c0a;
+    --bg-grid: #10140f;
+    --panel: #12160f;
+    --border: #232a1e;
+    --text: #d9e3d4;
+    --text-dim: #7c8a74;
+    --accent: #00c853;      /* live */
+    --accent-dim: #0a3d1f;
+    --warn: #ffb020;        /* connecting */
+    --danger: #ff4d4f;      /* disconnected */
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono",
+            Consolas, "Roboto Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(12px, 3vw, 32px);
+    background-image:
+      linear-gradient(var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--bg-grid) 1px, transparent 1px);
+    background-size: 28px 28px;
+    background-position: center;
+  }
+
+  /* .rig + .chat-panel sit side by side in .layout — adding the chat
+     sidebar is what pulls the video left of true page-center, no separate
+     offset needed. */
+  .layout {
+    width: 100%;
+    max-width: 1360px;
+    display: flex;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .rig {
+    width: 100%;
+    max-width: 1040px;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* ---- chat panel (right rail) ---------------------------------------- */
+  .chat-panel {
+    flex: 0 0 320px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.015);
+    overflow: hidden;
+  }
+
+  .chat-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+  }
+
+  .chat-messages {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .chat-empty {
+    margin: auto 0;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.74rem;
+  }
+
+  .chat-msg {
+    font-size: 0.78rem;
+    line-height: 1.4;
+    word-break: break-word;
+  }
+  .chat-msg .who { color: var(--accent); font-weight: 600; margin-right: 6px; }
+  .chat-msg .ts { color: var(--text-dim); font-size: 0.65rem; margin-left: 6px; }
+
+  .chat-input-row {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .chat-input-row input {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    outline: none;
+  }
+  .chat-input-row input:focus { border-color: var(--accent); }
+
+  .chat-input-row button {
+    flex: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 14px;
+    background: var(--accent-dim);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+  }
+  .chat-input-row button:hover { filter: brightness(1.2); }
+
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; }
+    .chat-panel { flex: 0 0 320px; }
+  }
+
+  /* ---- toast (profanity filter feedback) ------------------------------ */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 28px;
+    z-index: 50;
+    transform: translate(-50%, 8px);
+    padding: 9px 16px;
+    border: 1px solid var(--danger);
+    border-radius: 999px;
+    background: rgba(10, 12, 10, 0.92);
+    color: var(--danger);
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+
+  .stage-top {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    letter-spacing: 0.02em;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: rgba(10, 12, 10, 0.72);
+    backdrop-filter: blur(3px);
+  }
+
+  .brand .mark {
+    color: var(--accent);
+    font-weight: 700;
+  }
+
+  .brand .name {
+    font-size: 0.95rem;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .stage-badges {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .stage-badges .viewer-count,
+  .stage-badges .status {
+    background: rgba(10, 12, 10, 0.72);
+    backdrop-filter: blur(3px);
+  }
+
+  .viewer-count {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    letter-spacing: 0.03em;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .viewer-count.hidden { display: none; }
+  .viewer-count .eye { line-height: 1; font-size: 0.85rem; }
+  .viewer-count .n { color: var(--text); font-weight: 600; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.02);
+    white-space: nowrap;
+  }
+
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    flex: none;
+  }
+
+  .status[data-state="connecting"] .dot {
+    background: var(--warn);
+    color: rgba(255, 176, 32, 0.55);
+    animation: pulse 1.1s ease-in-out infinite;
+  }
+  .status[data-state="connecting"] .label { color: var(--warn); }
+
+  .status[data-state="live"] .dot {
+    background: var(--accent);
+    color: rgba(0, 200, 83, 0.5);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  .status[data-state="live"] .label { color: var(--accent); }
+
+  .status[data-state="disconnected"] .dot { background: var(--danger); }
+  .status[data-state="disconnected"] .label { color: var(--danger); }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+    70%  { box-shadow: 0 0 0 8px transparent; opacity: 0.55; }
+    100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+  }
+
+  .stage {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0, 0, 0, 0.4),
+      0 20px 60px -20px rgba(0, 200, 83, 0.08);
+  }
+
+  video {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: contain;
+    background: #000;
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    background: radial-gradient(circle at 50% 40%, rgba(10, 12, 10, 0.55), rgba(10, 12, 10, 0.92));
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    letter-spacing: 0.04em;
+    transition: opacity 0.25s ease;
+    pointer-events: none;
+  }
+  .overlay.hidden { opacity: 0; }
+
+  .overlay .glyph {
+    display: block;
+    font-size: 1.6rem;
+    margin-bottom: 10px;
+    color: var(--text);
+  }
+
+  .corner {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(0, 200, 83, 0.35);
+    pointer-events: none;
+  }
+  .corner.tl { top: 8px; left: 8px; border-right: none; border-bottom: none; }
+  .corner.tr { top: 8px; right: 8px; border-left: none; border-bottom: none; }
+  .corner.bl { bottom: 8px; left: 8px; border-right: none; border-top: none; }
+  .corner.br { bottom: 8px; right: 8px; border-left: none; border-top: none; }
+
+  footer.meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 2px 4px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.03em;
+    flex-wrap: wrap;
+  }
+
+  footer.meta code {
+    color: var(--text);
+    background: rgba(255, 255, 255, 0.04);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    font-family: var(--mono);
+  }
+
+  /* ---- printer telemetry strip --------------------------------------- */
+  .telemetry {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.015);
+  }
+  .telemetry.hidden { display: none; }
+
+  .tel-row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .tel-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 0.74rem;
+    color: var(--text-dim);
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .tel-v { color: var(--text); font-weight: 600; }
+  .tel-chip.hidden { display: none; }
+
+  .tel-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 3px 8px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .tel-state .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); flex: none; }
+  .tel-state[data-state="RUNNING"] { color: var(--accent); }
+  .tel-state[data-state="RUNNING"] .dot { background: var(--accent); animation: pulse 1.8s ease-in-out infinite; }
+  .tel-state[data-state="PAUSE"] { color: var(--warn); }
+  .tel-state[data-state="PAUSE"] .dot { background: var(--warn); }
+  .tel-state[data-state="FINISH"] { color: var(--accent); }
+  .tel-state[data-state="FINISH"] .dot { background: var(--accent); }
+  .tel-state[data-state="FAILED"] { color: var(--danger); }
+  .tel-state[data-state="FAILED"] .dot { background: var(--danger); }
+
+  .tel-progress-track {
+    flex: 1 1 140px;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    overflow: hidden;
+  }
+  .tel-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.5s ease;
+  }
+
+  .tel-file {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 480px) {
+    footer.meta { flex-direction: column; align-items: flex-start; }
+  }
+</style>
+</head>
+<body>
+  <div class="layout">
+  <div class="rig">
+    <div class="stage">
+      <video id="video" playsinline muted autoplay></video>
+      <div class="stage-top">
+        <div class="brand">
+          <span class="mark">◆</span>
+          <span class="name">PiranArt</span>
+        </div>
+        <div class="stage-badges">
+          <span class="viewer-count hidden" id="viewerCount">
+            <span class="eye">◔</span>
+            <span class="n" id="viewerCountN">—</span>
+          </span>
+          <div class="status" id="status" data-state="connecting">
+            <span class="dot"></span>
+            <span class="label" id="statusLabel">bağlanıyor</span>
+          </div>
+        </div>
+      </div>
+      <div class="corner tl"></div>
+      <div class="corner tr"></div>
+      <div class="corner bl"></div>
+      <div class="corner br"></div>
+      <div class="overlay" id="overlay">
+        <div>
+          <span class="glyph" id="overlayGlyph">◇</span>
+          <span id="overlayText">yayına bağlanılıyor…</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="telemetry hidden" id="telemetry">
+      <div class="tel-row">
+        <span class="tel-state" id="telState" data-state="">
+          <span class="dot"></span>
+          <span id="telStateLabel">—</span>
+        </span>
+        <div class="tel-progress-track"><div class="tel-progress-fill" id="telProgressFill"></div></div>
+        <span class="tel-chip"><span class="tel-v" id="telPercent">0</span>%</span>
+        <span class="tel-chip">kalan <span class="tel-v" id="telRemaining">—</span></span>
+      </div>
+      <div class="tel-row">
+        <span class="tel-chip">kat <span class="tel-v" id="telLayer">—</span></span>
+        <span class="tel-chip">nozzle <span class="tel-v" id="telNozzle">—</span>°C</span>
+        <span class="tel-chip">tabla <span class="tel-v" id="telBed">—</span>°C</span>
+        <span class="tel-chip hidden" id="telGramsChip">≈ <span class="tel-v" id="telGrams">—</span>g kullanıldı (tahmini)</span>
+      </div>
+      <div class="tel-file" id="telFile"></div>
+    </div>
+
+    <footer class="meta">
+      <span id="retryLabel"></span>
+    </footer>
+  </div>
+
+  <aside class="chat-panel" id="chatPanel">
+    <div class="chat-header">
+      <span>sohbet</span>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-empty" id="chatEmpty">henüz mesaj yok — ilk mesajı sen yaz</div>
+    </div>
+    <form class="chat-input-row" id="chatForm">
+      <input type="text" id="chatInput" placeholder="mesaj yaz…" maxlength="240" autocomplete="off" />
+      <button type="submit">gönder</button>
+    </form>
+  </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    // -------------------------------------------------------------------
+    // ↓↓↓ Bunu güncelle: MediaMTX'in verdiği herkese açık HLS adresi.
+    // Cloudflare Tunnel kurulduktan sonra, path adı "printer" olduğu için
+    // adres genelde şu şekli alır: https://<tunnel-subdomain>/printer/index.m3u8
+    // -------------------------------------------------------------------
+    const STREAM_URL = "https://bob-writes-witness-tunes.trycloudflare.com/printer/index.m3u8";
+
+    // "Kaç kişi izliyor" rozeti için heartbeat endpoint'i (worker.js, aynı
+    // Cloudflare Workers projesinde deploy edilir). Sabit/mutlak adres —
+    // sayfa yerel dosya olarak açılsa bile çalışsın diye (bu proje boyunca
+    // hep böyle test edildi). Worker CORS'u "*" olarak açık bıraktığı için
+    // farklı origin'den de sorunsuz çağrılabilir. Boş bırakırsan rozet hiç
+    // görünmez (viewer count özelliği sessizce devre dışı kalır).
+    const VIEWER_COUNT_URL = "https://printcam.cannecee.workers.dev/api/heartbeat";
+
+    // Sohbet mesajı gönderme endpoint'i — VIEWER_COUNT_URL ile aynı Worker'a
+    // gider, ayrı bir adres olarak yapılandırmaya gerek kalmasın diye
+    // otomatik türetiliyor (ikisinin farklı worker'lara işaret edip
+    // birbirinden kopması gibi bir hataya kapı açmıyor). VIEWER_COUNT_URL
+    // boşsa sohbet de gönderemez — mesaj senkronizasyonu zaten aynı
+    // heartbeat pollinguna (aşağıda) piggyback ediyor.
+    const CHAT_SEND_URL = VIEWER_COUNT_URL ? VIEWER_COUNT_URL.replace(/\/api\/heartbeat$/, "/api/chat/send") : "";
+
+    // Türkçe küfür/hakaret kara listesi — sohbet mesajı gönderilmeden önce
+    // tarayıcıda anında kontrol için kullanılıyor (bkz. aşağıdaki chat
+    // script'i). Worker.js'te de birebir aynı liste var ve gerçek
+    // yaptırım noktası orası — bu, kullanıcıya anında geri bildirim vermek
+    // için bir ön-kontrol.
+    // Kaynak: https://github.com/ooguz/turkce-kufur-karaliste (karaliste.json,
+    // CC-BY-SA-4.0 — teşekkürler @ooguz).
+    const PROFANITY_LIST = [
+      "abaza", "abazan", "ag", "ağzına sıçayım", "ahmak", "allah", "allahsız", "am", "amarım",
+      "ambiti", "am biti", "amcığı", "amcığın", "amcığını", "amcığınızı", "amcık", "amcık hoşafı",
+      "amcıklama", "amcıklandı", "amcik", "amck", "amckl", "amcklama", "amcklaryla", "amckta",
+      "amcktan", "amcuk", "amık", "amına", "amınako", "amına koy", "amına koyarım",
+      "amına koyayım", "amınakoyim", "amına koyyim", "amına s", "amına sikem", "amına sokam",
+      "amın feryadı", "amını", "amını s", "amın oglu", "amınoğlu", "amın oğlu", "amısına",
+      "amısını", "amina", "amina g", "amina k", "aminako", "aminakoyarim", "amina koyarim",
+      "amina koyayım", "amina koyayim", "aminakoyim", "aminda", "amindan", "amindayken", "amini",
+      "aminiyarraaniskiim", "aminoglu", "amin oglu", "amiyum", "amk", "amkafa", "amk çocuğu",
+      "amlarnzn", "amlı", "amm", "ammak", "ammna", "amn", "amna", "amnda", "amndaki", "amngtn",
+      "amnn", "amona", "amq", "amsız", "amsiz", "amsz", "amteri", "amugaa", "amuğa", "amuna",
+      "ana", "anaaann", "anal", "analarn", "anam", "anamla", "anan", "anana", "anandan", "ananı",
+      "ananın", "ananın am", "ananın amı", "ananın dölü", "ananınki", "ananısikerim",
+      "ananı sikerim", "ananısikeyim", "ananı sikeyim", "ananızın", "ananızın am", "anani",
+      "ananin", "ananisikerim", "anani sikerim", "ananisikeyim", "anani sikeyim", "anann", "ananz",
+      "anas", "anasını", "anasının am", "anası orospu", "anasi", "anasinin", "anay", "anayin",
+      "angut", "anneni", "annenin", "annesiz", "anuna", "aptal", "aq", "a.q", "a.q.", "aq.", "ass",
+      "atkafası", "atmık", "attırdığım", "attrrm", "auzlu", "avrat", "ayklarmalrmsikerim", "azdım",
+      "azdır", "azdırıcı", "babaannesi kaşar", "babanı", "babanın", "babani", "babası pezevenk",
+      "bacağına sıçayım", "bacına", "bacını", "bacının", "bacini", "bacn", "bacndan", "bacy",
+      "bastard", "basur", "beyinsiz", "bızır", "bitch", "biting", "bok", "boka", "bokbok", "bokça",
+      "bokhu", "bokkkumu", "boklar", "boktan", "boku", "bokubokuna", "bokum", "bombok", "boner",
+      "bosalmak", "boşalmak", "cenabet", "cibiliyetsiz", "cibilliyetini", "cibilliyetsiz", "cif",
+      "cikar", "cim", "çük", "dalaksız", "dallama", "daltassak", "dalyarak", "dalyarrak",
+      "dangalak", "dassagi", "diktim", "dildo", "dingil", "dingilini", "dinsiz", "dkerim", "domal",
+      "domalan", "domaldı", "domaldın", "domalık", "domalıyor", "domalmak", "domalmış", "domalsın",
+      "domalt", "domaltarak", "domaltıp", "domaltır", "domaltırım", "domaltip", "domaltmak",
+      "dölü", "dönek", "düdük", "eben", "ebeni", "ebenin", "ebeninki", "ebleh", "ecdadını",
+      "ecdadini", "embesil", "emi", "fahise", "fahişe", "feriştah", "ferre", "fuck", "fucker",
+      "fuckin", "fucking", "gavad", "gavat", "geber", "geberik", "gebermek", "gebermiş",
+      "gebertir", "gerızekalı", "gerizekalı", "gerizekali", "gerzek", "giberim", "giberler",
+      "gibis", "gibiş", "gibmek", "gibtiler", "goddamn", "godoş", "godumun", "gotelek",
+      "gotlalesi", "gotlu", "gotten", "gotundeki", "gotunden", "gotune", "gotunu", "gotveren",
+      "goyiim", "goyum", "goyuyim", "goyyim", "göt", "göt deliği", "götelek", "göt herif",
+      "götlalesi", "götlek", "götoğlanı", "göt oğlanı", "götoş", "götten", "götü", "götün",
+      "götüne", "götünekoyim", "götüne koyim", "götünü", "götveren", "göt veren", "göt verir",
+      "gtelek", "gtn", "gtnde", "gtnden", "gtne", "gtten", "gtveren", "hasiktir", "hassikome",
+      "hassiktir", "has siktir", "hassittir", "haysiyetsiz", "hayvan herif", "hoşafı", "hödük",
+      "hsktr", "huur", "ıbnelık", "ibina", "ibine", "ibinenin", "ibne", "ibnedir", "ibneleri",
+      "ibnelik", "ibnelri", "ibneni", "ibnenin", "ibnerator", "ibnesi", "idiot", "idiyot",
+      "imansz", "ipne", "iserim", "işerim", "itoğlu it", "kafam girsin", "kafasız", "kafasiz",
+      "kahpe", "kahpenin", "kahpenin feryadı", "kaka", "kaltak", "kancık", "kancik", "kappe",
+      "karhane", "kaşar", "kavat", "kavatn", "kaypak", "kayyum", "kerane", "kerhane",
+      "kerhanelerde", "kevase", "kevaşe", "kevvase", "koca göt", "koduğmun", "koduğmunun",
+      "kodumun", "kodumunun", "koduumun", "koyarm", "koyayım", "koyiim", "koyiiym", "koyim",
+      "koyum", "koyyim", "krar", "kukudaym", "laciye boyadım", "lavuk", "liboş", "madafaka", "mal",
+      "malafat", "malak", "manyak", "mcik", "meme", "memelerini", "mezveleli", "minaamcık",
+      "mincikliyim", "mna", "monakkoluyum", "motherfucker", "mudik", "oc", "ocuu", "ocuun", "OÇ",
+      "oç", "o. çocuğu", "oğlan", "oğlancı", "oğlu it", "orosbucocuu", "orospu", "orospucocugu",
+      "orospu cocugu", "orospu çoc", "orospuçocuğu", "orospu çocuğu", "orospu çocuğudur",
+      "orospu çocukları", "orospudur", "orospular", "orospunun", "orospunun evladı", "orospuydu",
+      "orospuyuz", "orostoban", "orostopol", "orrospu", "oruspu", "oruspuçocuğu", "oruspu çocuğu",
+      "osbir", "ossurduum", "ossurmak", "ossuruk", "osur", "osurduu", "osuruk", "osururum",
+      "otuzbir", "öküz", "öşex", "patlak zar", "penis", "pezevek", "pezeven", "pezeveng",
+      "pezevengi", "pezevengin evladı", "pezevenk", "pezo", "pic", "pici", "picler", "piç",
+      "piçin oğlu", "piç kurusu", "piçler", "pipi", "pipiş", "pisliktir", "porno", "pussy", "puşt",
+      "puşttur", "rahminde", "revizyonist", "s1kerim", "s1kerm", "s1krm", "sakso", "saksofon",
+      "salaak", "salak", "saxo", "sekis", "serefsiz", "sevgi koyarım", "sevişelim", "sexs",
+      "sıçarım", "sıçtığım", "sıecem", "sicarsin", "sie", "sik", "sikdi", "sikdiğim", "sike",
+      "sikecem", "sikem", "siken", "sikenin", "siker", "sikerim", "sikerler", "sikersin",
+      "sikertir", "sikertmek", "sikesen", "sikesicenin", "sikey", "sikeydim", "sikeyim", "sikeym",
+      "siki", "sikicem", "sikici", "sikien", "sikienler", "sikiiim", "sikiiimmm", "sikiim",
+      "sikiir", "sikiirken", "sikik", "sikil", "sikildiini", "sikilesice", "sikilmi", "sikilmie",
+      "sikilmis", "sikilmiş", "sikilsin", "sikim", "sikimde", "sikimden", "sikime", "sikimi",
+      "sikimiin", "sikimin", "sikimle", "sikimsonik", "sikimtrak", "sikin", "sikinde", "sikinden",
+      "sikine", "sikini", "sikip", "sikis", "sikisek", "sikisen", "sikish", "sikismis", "sikiş",
+      "sikişen", "sikişme", "sikitiin", "sikiyim", "sikiym", "sikiyorum", "sikkim", "sikko",
+      "sikleri", "sikleriii", "sikli", "sikm", "sikmek", "sikmem", "sikmiler", "sikmisligim",
+      "siksem", "sikseydin", "sikseyidin", "siksin", "siksinbaya", "siksinler", "siksiz", "siksok",
+      "siksz", "sikt", "sikti", "siktigimin", "siktigiminin", "siktiğim", "siktiğimin",
+      "siktiğiminin", "siktii", "siktiim", "siktiimin", "siktiiminin", "siktiler", "siktim",
+      "siktimin", "siktiminin", "siktir", "siktir et", "siktirgit", "siktir git", "siktirir",
+      "siktiririm", "siktiriyor", "siktir lan", "siktirolgit", "siktir ol git", "sittimin",
+      "sittir", "skcem", "skecem", "skem", "sker", "skerim", "skerm", "skeyim", "skiim", "skik",
+      "skim", "skime", "skmek", "sksin", "sksn", "sksz", "sktiimin", "sktrr", "skyim", "slaleni",
+      "sokam", "sokarım", "sokarim", "sokarm", "sokarmkoduumun", "sokayım", "sokaym", "sokiim",
+      "soktuğumunun", "sokuk", "sokum", "sokuş", "sokuyum", "soxum", "sulaleni", "sülaleni",
+      "sülalenizi", "sürtük", "şerefsiz", "şıllık", "taaklarn", "taaklarna", "tarrakimin", "tasak",
+      "tassak", "taşak", "taşşak", "tipini s.k", "tipinizi s.keyim", "tiyniyat", "toplarm",
+      "topsun", "totoş", "vajina", "vajinanı", "veled", "veledizina", "veled i zina", "verdiimin",
+      "weled", "weledizina", "whore", "xikeyim", "yaaraaa", "yalama", "yalarım", "yalarun",
+      "yaraaam", "yarak", "yaraksız", "yaraktr", "yaram", "yaraminbasi", "yaramn",
+      "yararmorospunun", "yarra", "yarraaaa", "yarraak", "yarraam", "yarraamı", "yarragi",
+      "yarragimi", "yarragina", "yarragindan", "yarragm", "yarrağ", "yarrağım", "yarrağımı",
+      "yarraimin", "yarrak", "yarram", "yarramin", "yarraminbaşı", "yarramn", "yarran", "yarrana",
+      "yarrrak", "yavak", "yavş", "yavşak", "yavşaktır", "yavuşak", "yılışık", "yilisik",
+      "yogurtlayam", "yoğurtlayam", "yrrak", "zıkkımım", "zibidi", "zigsin", "zikeyim", "zikiiim",
+      "zikiim", "zikik", "zikim", "ziksiiin", "ziksiin", "zulliyetini", "zviyetini",
+    ];
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js" defer></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const video = document.getElementById("video");
+      const statusEl = document.getElementById("status");
+      const statusLabel = document.getElementById("statusLabel");
+      const overlay = document.getElementById("overlay");
+      const overlayGlyph = document.getElementById("overlayGlyph");
+      const overlayText = document.getElementById("overlayText");
+      const retryLabel = document.getElementById("retryLabel");
+
+      const STATE = { CONNECTING: "connecting", LIVE: "live", DOWN: "disconnected" };
+      const LABELS = { connecting: "bağlanıyor", live: "canlı", disconnected: "bağlantı koptu" };
+
+      // Browsers pause <video> playback in backgrounded/hidden tabs (app
+      // switch, screen lock, switching browser tabs) — without this, the
+      // stream silently stays paused forever after the tab becomes visible
+      // again, even though hls.js/the native player think everything is
+      // fine (no error event fires, play() is just never re-called).
+      function attemptPlay() {
+        const p = video.play();
+        if (p && typeof p.catch === "function") {
+          p.catch(function () {
+            // Autoplay was blocked outright (stricter policy, no prior user
+            // gesture on this page) — give the viewer an explicit tap
+            // target instead of leaving a permanently frozen frame.
+            setOverlayMessage("▷", "oynatmak için dokun");
+            overlay.classList.remove("hidden");
+          });
+        }
+      }
+      document.addEventListener("visibilitychange", function () {
+        if (!document.hidden && video.paused) {
+          attemptPlay();
+        }
+      });
+      video.addEventListener("click", attemptPlay);
+      overlay.addEventListener("click", attemptPlay);
+
+      function setState(state, note) {
+        statusEl.setAttribute("data-state", state);
+        statusLabel.textContent = LABELS[state];
+        overlay.classList.toggle("hidden", state === STATE.LIVE);
+        retryLabel.textContent = note || "";
+      }
+
+      function setOverlayMessage(glyph, text) {
+        overlayGlyph.textContent = glyph;
+        overlayText.textContent = text;
+      }
+
+      // ---- reconnect bookkeeping -----------------------------------------
+      let retryTimer = null;
+      let retryDelayMs = 1500;
+      const RETRY_DELAY_MIN = 1500;
+      const RETRY_DELAY_MAX = 15000;
+
+      function scheduleRetry(reconnectFn) {
+        setState(STATE.DOWN);
+        clearTimeout(retryTimer);
+        const delaySec = Math.round(retryDelayMs / 1000);
+        retryLabel.textContent = "yeniden deneniyor (" + delaySec + "sn)…";
+        retryTimer = setTimeout(function () {
+          setState(STATE.CONNECTING);
+          reconnectFn();
+        }, retryDelayMs);
+        retryDelayMs = Math.min(retryDelayMs * 1.6, RETRY_DELAY_MAX);
+      }
+
+      function resetRetryBackoff() {
+        retryDelayMs = RETRY_DELAY_MIN;
+        clearTimeout(retryTimer);
+      }
+
+      // ---- native HLS path (Safari / iOS) ---------------------------------
+      // Listeners are attached once, outside startNative(), because
+      // startNative() itself re-runs on every reconnect (scheduleRetry ->
+      // startNative). Attaching inside the function used to pile up N sets
+      // of duplicate listeners on `video` after N reconnects — never
+      // cleaned up, since nothing ever called removeEventListener — which
+      // both leaks memory and makes every video event fire N times over on
+      // a long-running tab (this is a printer stream people leave open for
+      // hours, so reconnects add up).
+      let nativeListenersAttached = false;
+
+      function startNative() {
+        video.src = STREAM_URL;
+
+        if (nativeListenersAttached) return;
+        nativeListenersAttached = true;
+
+        video.addEventListener("loadedmetadata", function () {
+          resetRetryBackoff();
+          setState(STATE.LIVE);
+          attemptPlay();
+        });
+        video.addEventListener("playing", function () {
+          resetRetryBackoff();
+          setState(STATE.LIVE);
+        });
+        video.addEventListener("waiting", function () {
+          setState(STATE.CONNECTING, "arabelleğe alınıyor…");
+        });
+        video.addEventListener("error", function () {
+          scheduleRetry(function () {
+            video.src = "";
+            startNative();
+          });
+        });
+        video.addEventListener("stalled", function () {
+          scheduleRetry(function () {
+            video.src = "";
+            startNative();
+          });
+        });
+      }
+
+      // ---- hls.js path (Chrome/Firefox/Edge/Android) -----------------------
+      // Same leak risk as startNative() above: startHlsJs() re-runs on every
+      // fatal-error reconnect. The `hls` instance is recreated each time
+      // (needed — hls.destroy() retires the old one), but hls.js attaches
+      // its MSE pipeline to the *same* <video> element every time, so plain
+      // video.addEventListener calls here would otherwise stack up forever.
+      // MANIFEST_PARSED/ERROR listeners are scoped to the `hls` instance
+      // itself, so those are fine to re-add each call — they die with the
+      // instance that gets destroyed.
+      let hlsVideoListenersAttached = false;
+
+      function startHlsJs() {
+        if (!window.Hls) {
+          // hls.js failed to load from CDN (e.g. offline) — retry loading it.
+          scheduleRetry(startHlsJs);
+          return;
+        }
+        if (!window.Hls.isSupported()) {
+          setOverlayMessage("!", "tarayıcı HLS oynatmayı desteklemiyor");
+          setState(STATE.DOWN);
+          return;
+        }
+
+        const hls = new window.Hls({
+          lowLatencyMode: true,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
+          maxLiveSyncPlaybackRate: 1.2,
+        });
+
+        hls.loadSource(STREAM_URL);
+        hls.attachMedia(video);
+
+        hls.on(window.Hls.Events.MANIFEST_PARSED, function () {
+          resetRetryBackoff();
+          attemptPlay();
+        });
+
+        if (!hlsVideoListenersAttached) {
+          hlsVideoListenersAttached = true;
+          video.addEventListener("playing", function () {
+            resetRetryBackoff();
+            setState(STATE.LIVE);
+          });
+          video.addEventListener("waiting", function () {
+            if (statusEl.getAttribute("data-state") === STATE.LIVE) {
+              setState(STATE.CONNECTING, "arabelleğe alınıyor…");
+            }
+          });
+        }
+
+        // Full destroy + re-init on any fatal error, rather than hls.js's
+        // built-in partial recovery (hls.startLoad()). That partial path is
+        // meant for a stream that was already playing and had a network
+        // blip — it does not reliably re-fetch the manifest when the very
+        // first load fails (e.g. OBS not streaming yet / publisher went
+        // offline), which is the common case here. A full re-init handles
+        // both cases uniformly and is what actually recovers when the
+        // printer's stream comes back.
+        let mediaErrorRecoveries = 0;
+        hls.on(window.Hls.Events.ERROR, function (_evt, data) {
+          if (!data.fatal) return;
+
+          if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR && mediaErrorRecoveries < 3) {
+            mediaErrorRecoveries += 1;
+            setState(STATE.CONNECTING, "akış kurtarılıyor…");
+            hls.recoverMediaError();
+            return;
+          }
+
+          scheduleRetry(function () {
+            hls.destroy();
+            startHlsJs();
+          });
+        });
+      }
+
+      setState(STATE.CONNECTING);
+
+      // Safari ships a solid native HLS player and hls.js reports itself as
+      // unsupported there (no MSE path needed) — use the native <video> path.
+      // Everywhere else (Chrome/Firefox/Edge/Android), use hls.js.
+      const nativeHlsOnly = !(window.Hls && window.Hls.isSupported()) &&
+        video.canPlayType("application/vnd.apple.mpegurl") !== "";
+
+      if (nativeHlsOnly) {
+        startNative();
+      } else if (window.Hls) {
+        startHlsJs();
+      } else {
+        // hls.js <script defer> hasn't finished loading yet — wait for it.
+        window.addEventListener("load", startHlsJs, { once: true });
+      }
+
+      // ---- printer telemetry (rendered from the same heartbeat response) --
+      const TEL_STATE_LABELS = {
+        RUNNING: "yazdırıyor",
+        PAUSE: "duraklatıldı",
+        FINISH: "tamamlandı",
+        FAILED: "başarısız",
+        IDLE: "boşta",
+      };
+
+      function formatRemaining(min) {
+        if (typeof min !== "number" || min < 0) return "—";
+        const h = Math.floor(min / 60);
+        const m = Math.round(min % 60);
+        return h > 0 ? h + "s " + m + "dk" : m + "dk";
+      }
+
+      function renderTelemetry(t) {
+        const telemetryEl = document.getElementById("telemetry");
+        if (!t || !t.state) {
+          telemetryEl.classList.add("hidden");
+          return;
+        }
+        telemetryEl.classList.remove("hidden");
+
+        const stateEl = document.getElementById("telState");
+        stateEl.setAttribute("data-state", t.state);
+        document.getElementById("telStateLabel").textContent = TEL_STATE_LABELS[t.state] || t.state;
+
+        const pct = typeof t.percent === "number" ? Math.max(0, Math.min(100, t.percent)) : 0;
+        document.getElementById("telProgressFill").style.width = pct + "%";
+        document.getElementById("telPercent").textContent = pct;
+
+        document.getElementById("telRemaining").textContent = formatRemaining(t.remaining_min);
+        document.getElementById("telLayer").textContent =
+          t.layer != null && t.total_layers != null ? t.layer + "/" + t.total_layers : "—";
+        document.getElementById("telNozzle").textContent = t.nozzle_temp != null ? Math.round(t.nozzle_temp) : "—";
+        document.getElementById("telBed").textContent = t.bed_temp != null ? Math.round(t.bed_temp) : "—";
+        document.getElementById("telFile").textContent = t.file || "";
+
+        const gramsChip = document.getElementById("telGramsChip");
+        if (typeof t.grams_used_estimate === "number") {
+          document.getElementById("telGrams").textContent = t.grams_used_estimate;
+          gramsChip.classList.remove("hidden");
+        } else {
+          gramsChip.classList.add("hidden");
+        }
+      }
+
+      // ---- shared client identity ------------------------------------------
+      // Same id used for the viewer-count heartbeat and for chat messages —
+      // lets every viewer's poll tell "sen" (your own messages) apart from
+      // everyone else's without any login system.
+      const clientId =
+        (window.crypto && window.crypto.randomUUID) ? window.crypto.randomUUID() : String(Math.random());
+
+      // ---- toast (used by the chat profanity filter below) -----------------
+      const toastEl = document.getElementById("toast");
+      let toastTimer = null;
+      function showToast(msg) {
+        if (!toastEl) return;
+        toastEl.textContent = msg;
+        toastEl.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () {
+          toastEl.classList.remove("show");
+        }, 2200);
+      }
+
+      // ---- chat panel --------------------------------------------------------
+      // Messages are NOT rendered directly on submit — they're POSTed to the
+      // Worker (server re-checks profanity, see worker.js) and only shown once
+      // they come back through the heartbeat poll below, same as everyone
+      // else's. That keeps a single source of truth for ordering, instead of
+      // juggling "my own optimistic bubble" vs. "the server's copy of it".
+      const chatForm = document.getElementById("chatForm");
+      const chatInput = document.getElementById("chatInput");
+      const chatMessagesEl = document.getElementById("chatMessages");
+      let lastRenderedMsgId = 0;
+
+      // Single-word entries are matched against whole tokens (so "kamyon"
+      // doesn't trip on the 2-letter entry "am" hiding inside it); entries
+      // that are themselves phrases ("ağzına sıçayım") are matched as
+      // substrings, since tokenizing would break the phrase apart. \p{L}/
+      // \p{N} (Unicode-aware, `u` flag) is used instead of \w so Turkish
+      // letters (ğ, ş, ı, ö, ü, ç) count as word characters.
+      const PROFANITY_WORDS = new Set();
+      const PROFANITY_PHRASES = [];
+      PROFANITY_LIST.forEach(function (w) {
+        const norm = w.toLocaleLowerCase("tr-TR").trim();
+        if (!norm) return;
+        if (norm.indexOf(" ") === -1) {
+          PROFANITY_WORDS.add(norm);
+        } else {
+          PROFANITY_PHRASES.push(norm);
+        }
+      });
+
+      function containsProfanity(text) {
+        const norm = text.toLocaleLowerCase("tr-TR");
+        for (let i = 0; i < PROFANITY_PHRASES.length; i++) {
+          if (norm.indexOf(PROFANITY_PHRASES[i]) !== -1) return true;
+        }
+        const tokens = norm.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+        for (let i = 0; i < tokens.length; i++) {
+          if (PROFANITY_WORDS.has(tokens[i])) return true;
+        }
+        return false;
+      }
+
+      function formatTime(ms) {
+        const d = new Date(ms);
+        return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+      }
+
+      function senderLabel(sender) {
+        // "sen" for your own messages; everyone else gets a short, stable,
+        // anonymous label derived from their client id — no accounts/names.
+        return sender === clientId ? "sen" : "izleyici-" + sender.slice(0, 4);
+      }
+
+      function addMessage(who, text, ts) {
+        const empty = document.getElementById("chatEmpty");
+        if (empty) empty.remove();
+
+        const row = document.createElement("div");
+        row.className = "chat-msg";
+
+        const whoEl = document.createElement("span");
+        whoEl.className = "who";
+        whoEl.textContent = who;
+
+        const body = document.createElement("span");
+        body.textContent = text;
+
+        const tsEl = document.createElement("span");
+        tsEl.className = "ts";
+        tsEl.textContent = formatTime(ts);
+
+        row.appendChild(whoEl);
+        row.appendChild(body);
+        row.appendChild(tsEl);
+        chatMessagesEl.appendChild(row);
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      }
+
+      // Called from sendHeartbeat() below with whatever `messages` came back
+      // in that poll — only appends messages newer than the highest id
+      // already rendered, so the same message never shows twice across polls.
+      function renderChatMessages(messages) {
+        if (!Array.isArray(messages)) return;
+        messages.forEach(function (m) {
+          if (!m || typeof m.id !== "number" || m.id <= lastRenderedMsgId) return;
+          lastRenderedMsgId = m.id;
+          addMessage(senderLabel(m.sender), m.text, m.ts);
+        });
+      }
+
+      if (chatForm) {
+        chatForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+          const text = chatInput.value.trim();
+          if (!text) return;
+          if (containsProfanity(text)) {
+            showToast("Yasaklı kelime");
+            return;
+          }
+          if (!CHAT_SEND_URL) {
+            showToast("sohbet şu an devre dışı");
+            return;
+          }
+
+          const submitBtn = chatForm.querySelector("button");
+          if (submitBtn) submitBtn.disabled = true;
+
+          fetch(CHAT_SEND_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: clientId, text: text }),
+          })
+            .then(function (res) {
+              if (res.status === 422) {
+                showToast("Yasaklı kelime");
+                return;
+              }
+              if (!res.ok) {
+                showToast("gönderilemedi");
+                return;
+              }
+              chatInput.value = "";
+              // Pull the just-sent message (and anyone else's since the last
+              // poll) back immediately instead of waiting up to 8s for the
+              // regular interval below.
+              sendHeartbeat();
+            })
+            .catch(function () {
+              showToast("gönderilemedi");
+            })
+            .finally(function () {
+              if (submitBtn) submitBtn.disabled = false;
+              chatInput.focus();
+            });
+        });
+      }
+
+      // ---- "kaç kişi izliyor" heartbeat -----------------------------------
+      // Deliberately independent of the hls.js/video state machine above —
+      // this counts people with the page open, not whether their stream
+      // happens to be buffering at this exact moment. Also carries the
+      // printer telemetry AND recent chat messages piggybacked in the same
+      // response (see worker.js) rather than polling separate endpoints.
+      const viewerCountEl = document.getElementById("viewerCount");
+      const viewerCountN = document.getElementById("viewerCountN");
+
+      function sendHeartbeat() {
+        if (!VIEWER_COUNT_URL) return;
+        fetch(VIEWER_COUNT_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: clientId }),
+        })
+          .then(function (res) { return res.ok ? res.json() : null; })
+          .then(function (data) {
+            if (data && typeof data.count === "number") {
+              viewerCountN.textContent = data.count;
+              viewerCountEl.classList.remove("hidden");
+            }
+            renderTelemetry(data && data.telemetry);
+            renderChatMessages(data && data.messages);
+          })
+          .catch(function () {
+            // Silent failure — the counter/telemetry/chat sync are
+            // best-effort, never let them affect video playback.
+          });
+      }
+
+      if (VIEWER_COUNT_URL) {
+        sendHeartbeat();
+        setInterval(sendHeartbeat, 8000);
+      }
+    });
+  </script>
+</body>
+</html>

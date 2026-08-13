@@ -1,0 +1,7 @@
+{
+  "uid": "your-bambu-numeric-uid",
+  "serial": "your-printer-serial-number",
+  "access_token": "your-bambu-cloud-access-token",
+  "worker_url": "https://printcam.cannecee.workers.dev",
+  "telemetry_secret": "the-secret-you-set-with-wrangler-secret-put-TELEMETRY_SECRET"
+}

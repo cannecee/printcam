@@ -1,0 +1,89 @@
+###############################################################################
+# mediamtx.yml — PrintCam
+#
+# Minimal MediaMTX config: RTMP in (OBS push) -> low-latency HLS out (public).
+# Everything not needed for that pipeline is explicitly disabled to keep the
+# attack surface small, since :8888 will end up reachable from the internet
+# via a Cloudflare Tunnel.
+#
+# Docs: https://github.com/bluenviron/mediamtx#configuration
+###############################################################################
+
+###############################
+# Global / logging
+###############################
+logLevel: info
+logDestinations: [stdout]
+# readTimeout / writeTimeout left at defaults (10s) — fine for RTMP push + HLS pull.
+
+###############################
+# Disabled protocols / servers
+# (only RTMP-in and HLS-out are needed for this pipeline)
+###############################
+rtsp: no
+webrtc: no
+srt: no
+moq: no                       # Media over QUIC — newer protocol, not needed for this pipeline
+
+# Internal HTTP control API, metrics and pprof are not needed and should stay
+# off — no reason to expose management endpoints on a box that will have a
+# public tunnel pointed at it.
+api: no
+metrics: no
+pprof: no
+
+# No playback server — this is a live-only pipeline. (Recording is a
+# per-path setting in MediaMTX, not global, and defaults to off — there's
+# no top-level "record" key to disable.)
+playback: no
+
+###############################
+# RTMP server (ingest from OBS)
+###############################
+rtmp: yes
+rtmpAddress: :1935
+rtmpEncryption: "no"          # plain RTMP; OBS's "Custom..." server type doesn't do RTMPS here
+# rtmpAddress is LAN-only in this setup — it is NOT exposed through the
+# Cloudflare Tunnel (see cloudflared-config.yml). OBS must run on the same
+# network as the Pi, or reach it over a VPN.
+
+###############################
+# HLS server (public output, read by the viewer page via hls.js)
+###############################
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigins: ["*"]         # viewer page is hosted on a different origin (Pages/Netlify/etc.)
+hlsEncryption: no             # TLS is terminated by the Cloudflare Tunnel, not MediaMTX itself
+# hlsVariant: NOT "lowLatency". LL-HLS requires the PART-TARGET-DURATION to
+# stay perfectly constant for the whole stream (Apple's spec), but MediaMTX
+# derives it from the actual observed part sizes, which drift on a real
+# live encoder feed as old segments roll out of the window — every drift
+# logs "part duration changed ... this will cause an error in iOS clients"
+# and can genuinely break playback in Safari/iPhone's native LL-HLS player
+# (verified against gohlslib's source: internal partTargetDuration() takes
+# the max part size across the current segment window, which changes as
+# the window slides). "fmp4" has no parts, so this whole failure class
+# doesn't exist — costs a few seconds of extra latency, irrelevant for
+# watching a 3D printer.
+hlsVariant: fmp4
+hlsSegmentDuration: 1s
+hlsSegmentCount: 7
+hlsSegmentMaxSize: 50M
+# hlsAlwaysRemux: keep this "no" (default). MediaMTX only remuxes to HLS
+# while at least one viewer is connected, which saves CPU/SD-card I/O on the
+# Pi when nobody is watching. Flip to "yes" only if you want the .m3u8/.ts
+# files to always be warm and ready (costs continuous CPU while OBS is live).
+hlsAlwaysRemux: no
+hlsTrustedProxies: []
+
+###############################
+# Paths
+#
+# Only one path is allowed to publish: "printer". OBS must stream to
+#   rtmp://<pi-lan-ip>/printer
+# with stream key left empty in OBS (the path name itself is what carries
+# "printer" — see README.md for the exact OBS field mapping).
+###############################
+paths:
+  printer:
+    source: publisher

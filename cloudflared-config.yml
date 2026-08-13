@@ -1,0 +1,35 @@
+###############################################################################
+# cloudflared-config.yml — PrintCam
+#
+# Örnek Cloudflare Tunnel ingress config'i. Sadece HLS portu (:8888) dışarı
+# açılır — RTMP (:1935) tünellenmez, MediaMTX ile aynı makinede/LAN'da kalır
+# (bkz. README.md "Mimari" bölümü).
+#
+# Kurulum adımları README.md içinde. Buradaki <TUNNEL_ID>, <TUNNEL_ID>.json
+# ve printer.example.com değerlerini kendi değerlerinle değiştir.
+###############################################################################
+
+# `cloudflared tunnel create printcam` komutunun çıktısında verilen ID
+tunnel: <TUNNEL_ID>
+
+# Aynı komutun oluşturduğu kimlik bilgisi dosyası. MUTLAKA tam (absolute)
+# yol yaz — "~" burada genişletilmeyebilir, YAML config dosyalarında shell
+# expansion olmaz.
+#
+# - Bu Mac'te kullanıcı olarak çalıştırıyorsan (Yol A, `brew services start
+#   cloudflared`): varsayılan olarak ~/.cloudflared/ altında oluşur, yani
+#   örneğin /Users/<kullanıcı-adın>/.cloudflared/<TUNNEL_ID>.json
+#   (`echo ~/.cloudflared/` ile tam yolu görebilirsin).
+# - Raspberry Pi'de root olarak systemd servisi şeklinde çalıştırıyorsan
+#   (Yol B): dosyayı /root/.cloudflared/ altına taşırsın (README §Pi'de
+#   Cloudflare Tunnel bölümüne bak).
+credentials-file: /Users/<kullanıcı-adın>/.cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Kamera yayınının public olacağı subdomain -> yerel olarak dinleyen
+  # MediaMTX HLS portu. Kendi subdomain adını yaz.
+  - hostname: printer.example.com
+    service: http://localhost:8888
+
+  # Zorunlu catch-all kural: eşleşmeyen her istek 404 alır.
+  - service: http_status:404

@@ -1,0 +1,17 @@
+# Secrets — never commit real credentials
+bridge_config.json
+
+# Python venv
+.bridge-venv/
+
+# Logs
+.bridge-logs/
+
+# Cloudflare Workers build/dev cache
+.wrangler/
+
+# OS
+.DS_Store
+
+# Node
+node_modules/
