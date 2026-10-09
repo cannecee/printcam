@@ -39,7 +39,12 @@
   }
 
   body {
-    min-height: 100dvh;
+    /* svh (small viewport height) rather than dvh — dvh shrinks live when
+       a mobile on-screen keyboard opens (notably Android Chrome), which
+       reflowed/re-centered the whole page around the chat input as you
+       typed. svh is fixed at load, so the page layout — including the
+       chat panel's size — no longer moves when the keyboard shows. */
+    min-height: 100svh;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -57,24 +62,276 @@
      offset needed. */
   .layout {
     width: 100%;
-    max-width: 1360px;
+    max-width: 1700px;
     display: flex;
     align-items: stretch;
     gap: 14px;
   }
 
+  /* rig:side-panel = 3:1 flex-grow, i.e. video stage gets ~75% of the row
+     width and the right rail ~25% — percentages, not fixed px, so the
+     ratio holds at any window size instead of the rail eating leftover
+     space once the window is wider than the old fixed max-widths. */
   .rig {
     width: 100%;
-    max-width: 1040px;
-    flex: 1 1 auto;
+    flex: 3 1 0;
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
 
-  /* ---- chat panel (right rail) ---------------------------------------- */
+  /* ---- right rail: stacked — galeri / sohbet ---------------------------
+     Two panels, each flex 1 1 0 (0 basis, not a %) so they split whatever
+     definite height .side-panel ends up with 50/50 — see the flex-basis
+     note that used to live here for why 0 rather than "50%" matters (the
+     % version let content size force the panel to grow). */
+  .side-panel {
+    flex: 1 1 0;
+    max-width: 460px;
+    min-width: 280px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    flex: none;
+  }
+
+  .dots {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 0 10px;
+  }
+  .dot-ind {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.2s ease, transform 0.2s ease;
+    cursor: pointer;
+  }
+  .dot-ind.active { background: var(--accent); transform: scale(1.2); }
+
+  /* ---- gallery — "diğer işlerimiz", swipeable one photo at a time ----- */
+  .gallery-panel {
+    flex: 1 1 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.015);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Dots float over the photo itself instead of taking their own row
+     below it — same dot markup/behavior, just positioned absolute so the
+     track gets that vertical space back. Light/semi-transparent so they
+     read against any photo, not just dark ones. */
+  .gallery-dots {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 10px;
+    z-index: 2;
+    padding: 0;
+  }
+  .gallery-dots .dot-ind {
+    background: rgba(255, 255, 255, 0.35);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.3);
+  }
+  .gallery-dots .dot-ind.active { background: var(--accent); }
+
+  .gallery-track {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior: contain;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    cursor: grab;
+  }
+  /* While mouse-dragging (see JS): kill scroll-snap so scrollLeft tracks
+     the pointer 1:1 instead of fighting a snap point mid-drag, and select
+     none/grabbing cursor so the drag doesn't also highlight card text. */
+  .gallery-track.dragging {
+    cursor: grabbing;
+    scroll-snap-type: none;
+    user-select: none;
+  }
+  .gallery-track.dragging .gallery-card { cursor: grabbing; }
+  .gallery-track::-webkit-scrollbar { display: none; }
+
+  .gallery-slide {
+    flex: 0 0 100%;
+    min-width: 100%;
+    scroll-snap-align: start;
+    display: flex;
+    padding: 10px;
+  }
+
+  .gallery-card {
+    flex: 1 1 auto;
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    display: flex;
+    align-items: flex-end;
+    padding: 8px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: #0a0c0a;
+  }
+  .gallery-card:hover { border-color: var(--accent); }
+
+  .gallery-card .glyph-big {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -55%);
+    font-size: 2.2rem;
+    opacity: 0.5;
+  }
+
+  .gallery-caption {
+    position: relative;
+    z-index: 1;
+    font-size: 0.7rem;
+    color: var(--text);
+    background: rgba(10, 12, 10, 0.6);
+    padding: 3px 8px;
+    border-radius: 999px;
+    letter-spacing: 0.02em;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---- lightbox — full-screen view when a gallery card is tapped ------ */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(16px, 5vw, 48px);
+    background: rgba(6, 8, 6, 0.94);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+  .lightbox.show { opacity: 1; pointer-events: auto; }
+
+  .lightbox-inner {
+    position: relative;
+    width: min(92vw, 640px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .lightbox-media {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    max-height: 72vh;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-color: #0a0c0a;
+  }
+
+  .lightbox-media .glyph-big {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 3.2rem;
+    opacity: 0.5;
+  }
+
+  .lightbox-caption {
+    font-size: 0.82rem;
+    color: var(--text);
+    letter-spacing: 0.02em;
+  }
+
+  /* Prev/next arrows below the caption — same navigation as ArrowLeft/
+     ArrowRight (see JS), just a clickable/tappable equivalent. */
+  .lightbox-nav {
+    display: flex;
+    gap: 14px;
+  }
+
+  .lightbox-arrow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 34px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .lightbox-arrow:hover { border-color: var(--accent); color: var(--accent); }
+
+  .lightbox-close {
+    position: absolute;
+    top: -14px;
+    right: -14px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lightbox-close:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ---- chat — bottom half of the right rail, own panel like gallery.
+     flex-basis 0, not %, so it can't be forced to grow with message count
+     (see .side-panel's comment above for why). */
   .chat-panel {
-    flex: 0 0 320px;
+    flex: 1 1 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
@@ -94,12 +351,19 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--text-dim);
+    flex: none;
   }
 
   .chat-messages {
     flex: 1 1 auto;
     min-height: 0;
     overflow-y: auto;
+    /* Without this, scrolling the message list past its own top/bottom
+       "chains" into scrolling the whole page once the list runs out of
+       room — the actual cause of the panel appearing to change size/
+       position as messages piled up. Containing it here keeps the chat
+       panel's own footprint completely fixed no matter how full it gets. */
+    overscroll-behavior: contain;
     padding: 10px 12px;
     display: flex;
     flex-direction: column;
@@ -159,7 +423,14 @@
 
   @media (max-width: 860px) {
     .layout { flex-direction: column; }
-    .chat-panel { flex: 0 0 320px; }
+    .side-panel { flex: 0 0 640px; width: 100%; }
+
+    /* iOS Safari auto-zooms the whole page on focus of any input whose
+       font-size is below 16px — that zoom is what actually looked like
+       "the chat frame resizes" while typing (the panel itself never
+       changed size, the browser scaled the viewport around it). 16px
+       keeps the tap target above that threshold so no zoom triggers. */
+    .chat-input-row input { font-size: 16px; }
   }
 
   /* ---- toast (profanity filter feedback) ------------------------------ */
@@ -228,7 +499,6 @@
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-  .stage-badges .viewer-count,
   .stage-badges .status {
     background: rgba(10, 12, 10, 0.72);
     backdrop-filter: blur(3px);
@@ -243,13 +513,24 @@
     padding: 5px 9px;
     border: 1px solid var(--border);
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgba(10, 12, 10, 0.72);
+    backdrop-filter: blur(3px);
     color: var(--text-dim);
     white-space: nowrap;
   }
   .viewer-count.hidden { display: none; }
   .viewer-count .eye { line-height: 1; font-size: 0.85rem; }
   .viewer-count .n { color: var(--text); font-weight: 600; }
+
+  /* Moved off the top-right stage-badges corner — now floats directly
+     above the news-ticker's bottom-left "canlı" tag, stacked as one
+     visual column (viewer count on top, live tag below). */
+  .viewer-count-float {
+    position: absolute;
+    left: 10px;
+    bottom: 38px;
+    z-index: 3;
+  }
 
   .status {
     display: flex;
@@ -264,6 +545,10 @@
     background: rgba(255, 255, 255, 0.02);
     white-space: nowrap;
   }
+  /* Top-right "CANLI" badge retired — the news-ticker's tag (bottom-left)
+     is now the single live indicator. Kept in the DOM (not deleted) since
+     the connect/retry JS still reads its data-state; just not shown. */
+  .status.hidden { display: none; }
 
   .dot {
     width: 9px;
@@ -352,6 +637,87 @@
   .corner.tr { top: 8px; right: 8px; border-left: none; border-bottom: none; }
   .corner.bl { bottom: 8px; left: 8px; border-right: none; border-top: none; }
   .corner.br { bottom: 8px; right: 8px; border-left: none; border-top: none; }
+
+  /* ---- "breaking news" ticker — same facts, scrolling across the video
+     bottom edge instead of the swipeable card in the side rail. Sourced
+     from the same FACTS array (see script below) so there's one place to
+     edit the text, not two. Plain text tag + dark bar — the image-banner
+     version (breaking-news-banner.png) was tried and reverted (too big /
+     didn't look right at any size), back to this simpler look. -------- */
+  .news-ticker {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: flex;
+    align-items: stretch;
+    height: 28px;
+    background: rgba(6, 8, 6, 0.82);
+    border-top: 1px solid rgba(0, 200, 83, 0.35);
+    backdrop-filter: blur(2px);
+  }
+
+  .news-tag {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 12px;
+    background: var(--accent);
+    color: #06170c;
+    font-weight: 700;
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+  .news-tag .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: var(--danger);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+
+  .news-viewport {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .news-track {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    width: max-content;
+    /* Content is rendered twice back-to-back by JS; animating exactly
+       -50% loops seamlessly regardless of how long the text ends up
+       being — no width math needed. Duration scales with content length
+       (see script) so the reading speed stays constant either way. */
+    animation: news-scroll linear infinite;
+  }
+
+  .news-item {
+    flex: none;
+    padding: 0 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    color: var(--text);
+    white-space: nowrap;
+  }
+  .news-item .sep { color: var(--accent); margin-right: 20px; }
+
+  @keyframes news-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .news-track { animation: none; }
+  }
 
   footer.meta {
     display: flex;
@@ -464,20 +830,26 @@
           <span class="name">PiranArt</span>
         </div>
         <div class="stage-badges">
-          <span class="viewer-count hidden" id="viewerCount">
-            <span class="eye">◔</span>
-            <span class="n" id="viewerCountN">—</span>
-          </span>
-          <div class="status" id="status" data-state="connecting">
+          <div class="status hidden" id="status" data-state="connecting">
             <span class="dot"></span>
             <span class="label" id="statusLabel">bağlanıyor</span>
           </div>
         </div>
       </div>
+      <span class="viewer-count viewer-count-float hidden" id="viewerCount">
+        <span class="eye">◔</span>
+        <span class="n" id="viewerCountN">—</span>
+      </span>
       <div class="corner tl"></div>
       <div class="corner tr"></div>
       <div class="corner bl"></div>
       <div class="corner br"></div>
+      <div class="news-ticker">
+        <span class="news-tag"><span class="dot"></span>canlı</span>
+        <div class="news-viewport">
+          <div class="news-track" id="newsTrack"></div>
+        </div>
+      </div>
       <div class="overlay" id="overlay">
         <div>
           <span class="glyph" id="overlayGlyph">◇</span>
@@ -510,21 +882,72 @@
     </footer>
   </div>
 
-  <aside class="chat-panel" id="chatPanel">
-    <div class="chat-header">
-      <span>sohbet</span>
+  <aside class="side-panel">
+    <div class="gallery-panel">
+      <div class="panel-header"><span>diğer işlerimiz</span></div>
+      <div class="gallery-track" id="galleryTrack">
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/kilic-kirmizi.jpg')">
+            <span class="gallery-caption">The Witcher Çelik Kılıç</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/kilic-ejderha.jpg')">
+            <span class="gallery-caption">Frostmourne Kılıç</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/kilic-runik.jpg')">
+            <span class="gallery-caption">Narsil'in Kılıcı</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thor-cekici.jpg')">
+            <span class="gallery-caption">Thor'un Çekici</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/dunya-kupasi.jpg')">
+            <span class="gallery-caption">Dünya Kupası</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/jet-motoru.jpg')">
+            <span class="gallery-caption">Jet Motoru</span>
+          </div>
+        </div>
+      </div>
+      <div class="dots gallery-dots" id="galleryDots"></div>
     </div>
-    <div class="chat-messages" id="chatMessages">
-      <div class="chat-empty" id="chatEmpty">henüz mesaj yok — ilk mesajı sen yaz</div>
+
+    <div class="chat-panel" id="chatPanel">
+      <div class="chat-header">
+        <span>sohbet</span>
+      </div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-empty" id="chatEmpty">henüz mesaj yok — ilk mesajı sen yaz</div>
+      </div>
+      <form class="chat-input-row" id="chatForm">
+        <input type="text" id="chatInput" placeholder="mesaj yaz…" maxlength="240" autocomplete="off" />
+        <button type="submit">gönder</button>
+      </form>
     </div>
-    <form class="chat-input-row" id="chatForm">
-      <input type="text" id="chatInput" placeholder="mesaj yaz…" maxlength="240" autocomplete="off" />
-      <button type="submit">gönder</button>
-    </form>
   </aside>
   </div>
 
   <div class="toast" id="toast"></div>
+
+  <div class="lightbox" id="lightbox">
+    <div class="lightbox-inner">
+      <button class="lightbox-close" id="lightboxClose" type="button" aria-label="kapat">✕</button>
+      <div class="lightbox-media" id="lightboxMedia"></div>
+      <div class="lightbox-caption" id="lightboxCaption"></div>
+      <div class="lightbox-nav">
+        <button class="lightbox-arrow" id="lightboxPrev" type="button" aria-label="önceki fotoğraf">‹</button>
+        <button class="lightbox-arrow" id="lightboxNext" type="button" aria-label="sonraki fotoğraf">›</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     // -------------------------------------------------------------------
@@ -532,7 +955,7 @@
     // Cloudflare Tunnel kurulduktan sonra, path adı "printer" olduğu için
     // adres genelde şu şekli alır: https://<tunnel-subdomain>/printer/index.m3u8
     // -------------------------------------------------------------------
-    const STREAM_URL = "https://bob-writes-witness-tunes.trycloudflare.com/printer/index.m3u8";
+    const STREAM_URL = "https://supreme-complexity-typically-fallen.trycloudflare.com/printer/index.m3u8";
 
     // "Kaç kişi izliyor" rozeti için heartbeat endpoint'i (worker.js, aynı
     // Cloudflare Workers projesinde deploy edilir). Sabit/mutlak adres —
@@ -540,7 +963,7 @@
     // hep böyle test edildi). Worker CORS'u "*" olarak açık bıraktığı için
     // farklı origin'den de sorunsuz çağrılabilir. Boş bırakırsan rozet hiç
     // görünmez (viewer count özelliği sessizce devre dışı kalır).
-    const VIEWER_COUNT_URL = "https://printcam.cannecee.workers.dev/api/heartbeat";
+    const VIEWER_COUNT_URL = "https://piranart.cannecee.workers.dev/api/heartbeat";
 
     // Sohbet mesajı gönderme endpoint'i — VIEWER_COUNT_URL ile aynı Worker'a
     // gider, ayrı bir adres olarak yapılandırmaya gerek kalmasın diye
@@ -651,6 +1074,57 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.5.17/hls.min.js" defer></script>
   <script>
     document.addEventListener("DOMContentLoaded", function () {
+      // ---- "3D hakkında bilinmeyenler" text, feeds the news-ticker -------
+      // The side-rail swipe card that used to also read from this array
+      // was removed (gallery + chat now split the rail 50/50); this array
+      // only drives the ticker crawling along the video's bottom edge now.
+      const FACTS = [
+        "PLA filamentin çoğu petrolden değil, mısır nişastası gibi yenilenebilir kaynaklardan üretilir.",
+        "PETG, pet şişelerde kullanılan plastiğin glikol katkısıyla modifiye edilmiş, 3D baskıya uygun halidir.",
+        "İlk 3D yazıcı 1983'te Chuck Hull tarafından icat edildi — reçineyi katman katman sertleştiren SLA teknolojisiyle.",
+        "TPU, lastik gibi bükülebilen esnek bir filamenttir; telefon kılıfı ve titreşim sönümleyici parçalarda sıkça kullanılır.",
+        "Bambu Lab X2D, çift ekstruderiyle aynı baskıda iki farklı renk veya malzemeyi bir arada kullanabiliyor.",
+        "PETG, UV ışığa ve neme karşı ABS'den çok daha dayanıklıdır, bu yüzden dış mekan parçalarında tercih edilir.",
+        "Karmaşık geometrilerde kullanılan \"destek\" yapıları, bazen suda çözünen özel bir filamentle basılıp sonradan eritiliyor.",
+        "PLA'nın erime sıcaklığı düşüktür, bu yüzden ısıtmalı tabla olmadan da yazdırılabilir.",
+        "TPU'nun sertliği Shore A ölçeğiyle belirtilir; düşük değerler yumuşak, yüksek değerler sert ve baskısı kolay anlamına gelir.",
+        "Nozzle sıcaklığı malzemeye göre değişir: PLA ~200°C basarken, mühendislik plastiği ABS 250°C'ye kadar çıkabilir.",
+        "PETG aşırı yapışkan bir malzemedir; katmanlar arası bağı güçlüdür ama nozula da fazlaca yapışabilir.",
+        "PLA, güneş ışığına veya sıcak bir araba içine bırakıldığında 50-60°C civarında yumuşayıp şeklini kaybedebilir.",
+        "TPU'nun bazı türleri kendi boyunun 3-4 katına kadar gerilip kopmadan eski haline dönebilir.",
+      ];
+
+      // News ticker: same FACTS, rendered twice back-to-back so the CSS
+      // translateX(-50%) loop (see .news-track) wraps seamlessly — at the
+      // halfway point the second copy lines up exactly where the first
+      // started. Animation duration is derived from the rendered width so
+      // the scroll speed stays constant (~55px/s) no matter how long the
+      // combined text ends up being after future edits to FACTS.
+      const newsTrackEl = document.getElementById("newsTrack");
+      if (newsTrackEl) {
+        function buildNewsPass() {
+          const frag = document.createDocumentFragment();
+          FACTS.forEach(function (text) {
+            const item = document.createElement("span");
+            item.className = "news-item";
+            const sep = document.createElement("span");
+            sep.className = "sep";
+            sep.textContent = "●";
+            item.appendChild(sep);
+            item.appendChild(document.createTextNode(text));
+            frag.appendChild(item);
+          });
+          return frag;
+        }
+        newsTrackEl.appendChild(buildNewsPass());
+        newsTrackEl.appendChild(buildNewsPass());
+        requestAnimationFrame(function () {
+          const passWidth = newsTrackEl.scrollWidth / 2;
+          const pxPerSecond = 55;
+          newsTrackEl.style.animationDuration = Math.max(12, passWidth / pxPerSecond) + "s";
+        });
+      }
+
       const video = document.getElementById("video");
       const statusEl = document.getElementById("status");
       const statusLabel = document.getElementById("statusLabel");
@@ -1000,6 +1474,13 @@
         row.appendChild(whoEl);
         row.appendChild(body);
         row.appendChild(tsEl);
+
+        // Always jump to the newest message, regardless of where the
+        // viewer currently has the list scrolled to (even reading old
+        // history at the top). This scrolls chatMessagesEl itself only —
+        // the earlier page-jumping bug was a stray chatInput.focus() call
+        // (removed) and scroll chaining (blocked by overscroll-behavior:
+        // contain on this element), not this scrollTop assignment itself.
         chatMessagesEl.appendChild(row);
         chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
       }
@@ -1057,11 +1538,266 @@
               showToast("gönderilemedi");
             })
             .finally(function () {
+              // Deliberately NOT re-focusing chatInput here anymore — doing
+              // so after the async send resolved is what was scrolling the
+              // whole page down to bring the input back into view (mobile
+              // browsers do this for any focus() call, not just user taps).
               if (submitBtn) submitBtn.disabled = false;
-              chatInput.focus();
             });
         });
       }
+
+      // ---- gallery carousel: dots + infinite wrap-around --------------------
+      // Classic clone-and-jump loop: a copy of the last photo is prepended
+      // and a copy of the first is appended, so swiping right past the real
+      // last photo reveals what LOOKS like the first photo again — then,
+      // once that swipe settles, we silently snap scrollLeft back to the
+      // real first slide (visually identical, so the correction is
+      // invisible). Same trick in reverse for swiping left past the start.
+      // Real photo count, filled in by wireInfiniteGallery below — read by
+      // the lightbox's prev/next nav so it can wrap the same way the
+      // carousel itself does.
+      let galleryPhotoCount = 0;
+
+      function wireInfiniteGallery(trackId, dotsId) {
+        const track = document.getElementById(trackId);
+        const dotsEl = document.getElementById(dotsId);
+        if (!track || !dotsEl) return;
+
+        const slides = Array.prototype.slice.call(track.querySelectorAll(".gallery-slide"));
+        const n = slides.length;
+        if (n === 0) return;
+        galleryPhotoCount = n;
+
+        // Tag each real card with its index — the clones below inherit it
+        // via cloneNode(true), which is what lets the lightbox map "any
+        // card the user tapped, clone or not" back to a real photo number.
+        slides.forEach(function (slide, i) {
+          const card = slide.querySelector(".gallery-card");
+          if (card) card.dataset.index = i;
+        });
+
+        const firstClone = slides[0].cloneNode(true);
+        const lastClone = slides[n - 1].cloneNode(true);
+        firstClone.setAttribute("aria-hidden", "true");
+        lastClone.setAttribute("aria-hidden", "true");
+        track.insertBefore(lastClone, slides[0]);
+        track.appendChild(firstClone);
+
+        for (let i = 0; i < n; i++) {
+          const dot = document.createElement("span");
+          dot.className = "dot-ind" + (i === 0 ? " active" : "");
+          dot.addEventListener("click", function () {
+            // +1: track index 0 is the prepended "last photo" clone, so
+            // real photo i lives at track index i+1.
+            track.scrollTo({ left: track.clientWidth * (i + 1), behavior: "smooth" });
+          });
+          dotsEl.appendChild(dot);
+        }
+        const dotEls = dotsEl.querySelectorAll(".dot-ind");
+
+        // Land on the real first photo, not the prepended clone — instant,
+        // no animation, before the user ever sees it.
+        track.scrollLeft = track.clientWidth;
+
+        let scrollRaf = null;
+        let settleTimer = null;
+        track.addEventListener("scroll", function () {
+          if (scrollRaf) return;
+          scrollRaf = requestAnimationFrame(function () {
+            scrollRaf = null;
+            const idx = Math.round(track.scrollLeft / track.clientWidth);
+            const realIdx = ((idx - 1) % n + n) % n;
+            dotEls.forEach(function (d, i) { d.classList.toggle("active", i === realIdx); });
+          });
+
+          // Debounced "scroll has settled" check — only correct a clone
+          // landing after the swipe/drag has actually finished, not on
+          // every intermediate scroll tick.
+          clearTimeout(settleTimer);
+          settleTimer = setTimeout(function () {
+            const idx = Math.round(track.scrollLeft / track.clientWidth);
+            if (idx === 0) {
+              track.scrollLeft = track.clientWidth * n; // was on the "last" clone -> jump to the real last
+            } else if (idx === n + 1) {
+              track.scrollLeft = track.clientWidth; // was on the "first" clone -> jump to the real first
+            }
+          }, 120);
+        });
+
+        // ---- auto-advance — one photo every 5s -------------------------
+        // The fire callback reschedules itself directly (not only via the
+        // scroll listener below) — relying solely on the 'scroll' event to
+        // chain the next timer meant that if one scrollTo ever had zero
+        // effect (e.g. layout still settling right after load, so the
+        // target position matched where it already was), no scroll event
+        // would fire and auto-advance would silently stop forever. The
+        // scroll listener still resets this early on real user activity
+        // (drag/swipe/dot-click), so manual interaction still gets a full
+        // fresh 5s afterward — it just isn't the only thing keeping the
+        // chain alive.
+        let autoTimer = null;
+        function scheduleAutoAdvance() {
+          clearTimeout(autoTimer);
+          autoTimer = setTimeout(function () {
+            const idx = Math.round(track.scrollLeft / track.clientWidth);
+            track.scrollTo({ left: track.clientWidth * (idx + 1), behavior: "smooth" });
+            scheduleAutoAdvance();
+          }, 5000);
+        }
+        track.addEventListener("scroll", scheduleAutoAdvance);
+        scheduleAutoAdvance();
+      }
+      wireInfiniteGallery("galleryTrack", "galleryDots");
+
+      // ---- gallery lightbox — tap a card, see it full-screen ---------------
+      // Reads the clicked card's inline background-image/caption straight
+      // off the DOM rather than keeping a parallel data array, so adding
+      // or swapping a photo later only needs an HTML edit, no JS change.
+      const galleryTrack = document.getElementById("galleryTrack");
+      const lightbox = document.getElementById("lightbox");
+      const lightboxMedia = document.getElementById("lightboxMedia");
+      const lightboxCaption = document.getElementById("lightboxCaption");
+      const lightboxClose = document.getElementById("lightboxClose");
+      const lightboxPrev = document.getElementById("lightboxPrev");
+      const lightboxNext = document.getElementById("lightboxNext");
+
+      let currentLightboxIndex = 0;
+
+      // Shared by openLightbox (first tap) and showLightboxIndex (arrow/
+      // keyboard nav) — paints whatever card is passed into the media/
+      // caption slots, nothing else.
+      function renderLightboxCard(card) {
+        // backgroundImage specifically, not the .background shorthand —
+        // cards only ever set background-image inline (see gallery-card
+        // markup), and reading the shorthand back via .style.background
+        // returns "" unless every shorthand sub-property was set inline.
+        lightboxMedia.style.backgroundImage = card.style.backgroundImage;
+        lightboxMedia.textContent = "";
+        const glyph = card.querySelector(".glyph-big");
+        if (glyph) {
+          const glyphEl = document.createElement("span");
+          glyphEl.className = "glyph-big";
+          glyphEl.textContent = glyph.textContent;
+          lightboxMedia.appendChild(glyphEl);
+        }
+        const caption = card.querySelector(".gallery-caption");
+        lightboxCaption.textContent = caption ? caption.textContent : "";
+      }
+
+      function openLightbox(card) {
+        if (!lightbox) return;
+        renderLightboxCard(card);
+        const idx = parseInt(card.dataset.index, 10);
+        currentLightboxIndex = isNaN(idx) ? 0 : idx;
+        lightbox.classList.add("show");
+      }
+
+      // Prev/next while the lightbox is open — wraps the same way the
+      // carousel does (photo count from wireInfiniteGallery), and also
+      // scrolls the carousel underneath to match, so closing the lightbox
+      // leaves the dots/scroll position consistent with what was shown.
+      function showLightboxIndex(i) {
+        if (!galleryTrack || galleryPhotoCount === 0) return;
+        const idx = ((i % galleryPhotoCount) + galleryPhotoCount) % galleryPhotoCount;
+        const card = galleryTrack.querySelector('.gallery-card[data-index="' + idx + '"]');
+        if (!card) return;
+        renderLightboxCard(card);
+        currentLightboxIndex = idx;
+        // +1: track index 0 is the prepended "last photo" clone.
+        galleryTrack.scrollTo({ left: galleryTrack.clientWidth * (idx + 1), behavior: "smooth" });
+      }
+
+      function closeLightbox() {
+        if (!lightbox) return;
+        lightbox.classList.remove("show");
+      }
+
+      if (galleryTrack) {
+        // ---- mouse drag-to-scroll + tap-to-open ------------------------
+        // Touch/trackpad already pan this horizontally for free; a mouse
+        // doesn't generate scroll input from a plain click-drag, so this
+        // repeats that gesture by hand: press, track the pointer's X
+        // delta, and shove it straight into scrollLeft. scroll-snap (see
+        // .gallery-track CSS) takes over on release to settle on a card.
+        //
+        // Move/up listeners live on `document`, not galleryTrack, and are
+        // only attached for the duration of a press. This used to rely on
+        // setPointerCapture() to keep receiving pointermove once the
+        // cursor left the track's bounds mid-drag — but capture can fail
+        // (throws "no active pointer with the given id" in some browsers),
+        // and when it does, pointermove silently stops arriving, dragMoved
+        // never flips to true, and every drag got misread as a plain tap
+        // that popped the lightbox open. Listening on document sidesteps
+        // capture entirely: it always keeps receiving move/up regardless
+        // of where the cursor wanders, capture or no capture.
+        let dragging = false;
+        let dragStartX = 0;
+        let dragStartScrollLeft = 0;
+        let dragMoved = false;
+        let pressedCard = null;
+        let suppressNextClick = false;
+
+        function onPointerMove(e) {
+          if (!dragging) return;
+          const delta = e.clientX - dragStartX;
+          if (Math.abs(delta) > 6) dragMoved = true;
+          galleryTrack.scrollLeft = dragStartScrollLeft - delta;
+        }
+
+        function onPointerEnd() {
+          if (!dragging) return;
+          dragging = false;
+          galleryTrack.classList.remove("dragging");
+          document.removeEventListener("pointermove", onPointerMove);
+          document.removeEventListener("pointerup", onPointerEnd);
+          document.removeEventListener("pointercancel", onPointerEnd);
+          if (!dragMoved && pressedCard) {
+            openLightbox(pressedCard);
+            suppressNextClick = true; // the native click that follows would otherwise reopen/re-trigger
+          }
+          pressedCard = null;
+        }
+
+        galleryTrack.addEventListener("pointerdown", function (e) {
+          if (e.pointerType === "touch") return; // native touch scrolling already works
+          dragging = true;
+          dragMoved = false;
+          pressedCard = e.target.closest(".gallery-card");
+          dragStartX = e.clientX;
+          dragStartScrollLeft = galleryTrack.scrollLeft;
+          galleryTrack.classList.add("dragging");
+          document.addEventListener("pointermove", onPointerMove);
+          document.addEventListener("pointerup", onPointerEnd);
+          document.addEventListener("pointercancel", onPointerEnd);
+        });
+
+        // Fallback path for touch (and anything else that never ran the
+        // pointer handlers above, e.g. keyboard activation) — real taps
+        // aren't captured, so e.target here is reliably the actual card.
+        galleryTrack.addEventListener("click", function (e) {
+          if (suppressNextClick) {
+            suppressNextClick = false;
+            return;
+          }
+          const card = e.target.closest(".gallery-card");
+          if (card) openLightbox(card);
+        });
+      }
+      if (lightboxClose) lightboxClose.addEventListener("click", closeLightbox);
+      if (lightbox) {
+        lightbox.addEventListener("click", function (e) {
+          if (e.target === lightbox) closeLightbox();
+        });
+      }
+      if (lightboxPrev) lightboxPrev.addEventListener("click", function () { showLightboxIndex(currentLightboxIndex - 1); });
+      if (lightboxNext) lightboxNext.addEventListener("click", function () { showLightboxIndex(currentLightboxIndex + 1); });
+      document.addEventListener("keydown", function (e) {
+        if (!lightbox || !lightbox.classList.contains("show")) return;
+        if (e.key === "Escape") closeLightbox();
+        else if (e.key === "ArrowLeft") showLightboxIndex(currentLightboxIndex - 1);
+        else if (e.key === "ArrowRight") showLightboxIndex(currentLightboxIndex + 1);
+      });
 
       // ---- "kaç kişi izliyor" heartbeat -----------------------------------
       // Deliberately independent of the hls.js/video state machine above —

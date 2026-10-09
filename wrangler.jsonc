@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "printcam",
+  "name": "piranart",
   "compatibility_date": "2026-08-12",
   "main": "worker.js",
   "observability": {
