@@ -255,15 +255,16 @@
   }
 
   .lightbox-media {
-    width: 100%;
-    aspect-ratio: 1 / 1;
-    max-height: 72vh;
+    height: 72vh;
+    width: auto;
+    aspect-ratio: 9 / 16;
+    max-width: 92vw;
     border-radius: 12px;
     border: 1px solid var(--border);
     position: relative;
     overflow: hidden;
     box-shadow: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
-    background-size: cover;
+    background-size: contain;
     background-position: center;
     background-repeat: no-repeat;
     background-color: #0a0c0a;
@@ -887,33 +888,58 @@
       <div class="panel-header"><span>diğer işlerimiz</span></div>
       <div class="gallery-track" id="galleryTrack">
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/kilic-kirmizi.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/kilic-kirmizi.jpg')">
             <span class="gallery-caption">The Witcher Çelik Kılıç</span>
           </div>
         </div>
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/kilic-ejderha.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/kilic-ejderha.jpg')">
             <span class="gallery-caption">Frostmourne Kılıç</span>
           </div>
         </div>
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/kilic-runik.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/kilic-runik.jpg')">
             <span class="gallery-caption">Narsil'in Kılıcı</span>
           </div>
         </div>
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/thor-cekici.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/thor-cekici.jpg')">
             <span class="gallery-caption">Thor'un Çekici</span>
           </div>
         </div>
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/dunya-kupasi.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/dunya-kupasi.jpg')">
             <span class="gallery-caption">Dünya Kupası</span>
           </div>
         </div>
         <div class="gallery-slide">
-          <div class="gallery-card" style="background-image:url('images/jet-motoru.jpg')">
+          <div class="gallery-card" style="background-image:url('images/thumb/jet-motoru.jpg')">
             <span class="gallery-caption">Jet Motoru</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thumb/zoro-katana.jpg')">
+            <span class="gallery-caption">Zoro'nun Katanası</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thumb/katana-stand.jpg')">
+            <span class="gallery-caption">Katana ve Stand</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thumb/secret-hitler.jpg')">
+            <span class="gallery-caption">Secret Hitler Oyunu</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thumb/apollo-lamba.jpg')">
+            <span class="gallery-caption">Apollo Lambası</span>
+          </div>
+        </div>
+        <div class="gallery-slide">
+          <div class="gallery-card" style="background-image:url('images/thumb/catan.jpg')">
+            <span class="gallery-caption">Catan Oyunu</span>
           </div>
         </div>
       </div>
@@ -1672,7 +1698,7 @@
         // cards only ever set background-image inline (see gallery-card
         // markup), and reading the shorthand back via .style.background
         // returns "" unless every shorthand sub-property was set inline.
-        lightboxMedia.style.backgroundImage = card.style.backgroundImage;
+        lightboxMedia.style.backgroundImage = card.style.backgroundImage.replace("images/thumb/", "images/");
         lightboxMedia.textContent = "";
         const glyph = card.querySelector(".glyph-big");
         if (glyph) {
