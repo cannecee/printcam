@@ -33,7 +33,8 @@
 import { DurableObject } from "cloudflare:workers";
 
 const FRESHNESS_MS = 20_000; // a viewer counts as "active" if seen in the last 20s
-const RETENTION_MS = 5 * 60_000; // rows older than this are purged opportunistically
+const JOIN_QUIET_MS = 30 * 60_000; // a viewer unseen this long gets a fresh "joined" chat line
+const RETENTION_MS = JOIN_QUIET_MS; // heartbeat rows double as join memory, so keep them as long
 const TELEMETRY_STALE_MS = 60_000; // hide telemetry if the bridge hasn't posted in this long
 
 const CHAT_MAX_LEN = 240; // matches the <input maxlength> in viewer/index.html
@@ -198,10 +199,11 @@ export class ViewerPresence extends DurableObject {
   async heartbeat(id) {
     const now = Date.now();
 
-    // First heartbeat from this client id (a fresh page load generates a
-    // new one) -> post a "joined" line into chat. A row purged after
-    // RETENTION_MS of silence counts as a new join too.
-    const isNew = this.query("SELECT 1 FROM heartbeats WHERE id = ?", id).toArray().length === 0;
+    // Client id is persisted in the viewer's localStorage, so refreshes keep
+    // the same id. Only announce a "joined" line if this id hasn't been
+    // seen in the last JOIN_QUIET_MS — short breaks don't re-announce.
+    const isNew =
+      this.query("SELECT 1 FROM heartbeats WHERE id = ? AND ts > ?", id, now - JOIN_QUIET_MS).toArray().length === 0;
     if (isNew) {
       this.query("INSERT INTO chat_messages (sender, text, ts, kind) VALUES (?, '', ?, 'join')", id, now);
     }
