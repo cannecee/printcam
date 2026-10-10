@@ -385,6 +385,7 @@
   }
   .chat-msg .who { color: var(--accent); font-weight: 600; margin-right: 6px; }
   .chat-msg .ts { color: var(--text-dim); font-size: 0.65rem; margin-left: 6px; }
+  .chat-msg.join { color: var(--text-dim); font-style: italic; }
 
   .chat-input-row {
     display: flex;
@@ -1511,6 +1512,29 @@
         chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
       }
 
+      // Server-generated "joined" line (kind: "join", see worker.js
+      // heartbeat()) — e.g. "izleyici-559c Yayına katıldı. 16.53".
+      function addJoinNotice(who, ts) {
+        const empty = document.getElementById("chatEmpty");
+        if (empty) empty.remove();
+
+        const row = document.createElement("div");
+        row.className = "chat-msg join";
+
+        const whoEl = document.createElement("span");
+        whoEl.className = "who";
+        whoEl.textContent = who;
+
+        const body = document.createElement("span");
+        body.textContent = "Yayına katıldı. " + formatTime(ts).replace(":", ".");
+
+        row.appendChild(whoEl);
+        row.appendChild(body);
+
+        chatMessagesEl.appendChild(row);
+        chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+      }
+
       // Called from sendHeartbeat() below with whatever `messages` came back
       // in that poll — only appends messages newer than the highest id
       // already rendered, so the same message never shows twice across polls.
@@ -1519,7 +1543,11 @@
         messages.forEach(function (m) {
           if (!m || typeof m.id !== "number" || m.id <= lastRenderedMsgId) return;
           lastRenderedMsgId = m.id;
-          addMessage(senderLabel(m.sender), m.text, m.ts);
+          if (m.kind === "join") {
+            addJoinNotice(senderLabel(m.sender), m.ts);
+          } else {
+            addMessage(senderLabel(m.sender), m.text, m.ts);
+          }
         });
       }
 

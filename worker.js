@@ -182,12 +182,29 @@ export class ViewerPresence extends DurableObject {
     this.query("CREATE TABLE IF NOT EXISTS heartbeats (id TEXT PRIMARY KEY, ts INTEGER NOT NULL)");
     this.query(
       "CREATE TABLE IF NOT EXISTS chat_messages (" +
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL)"
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, text TEXT NOT NULL, ts INTEGER NOT NULL, " +
+        "kind TEXT NOT NULL DEFAULT 'msg')"
     );
+    // Tables created before `kind` existed (already-deployed DO) don't get
+    // it from CREATE TABLE IF NOT EXISTS — add it once in place.
+    const hasKind = this.query("PRAGMA table_info(chat_messages)")
+      .toArray()
+      .some((col) => col.name === "kind");
+    if (!hasKind) {
+      this.query("ALTER TABLE chat_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'msg'");
+    }
   }
 
   async heartbeat(id) {
     const now = Date.now();
+
+    // First heartbeat from this client id (a fresh page load generates a
+    // new one) -> post a "joined" line into chat. A row purged after
+    // RETENTION_MS of silence counts as a new join too.
+    const isNew = this.query("SELECT 1 FROM heartbeats WHERE id = ?", id).toArray().length === 0;
+    if (isNew) {
+      this.query("INSERT INTO chat_messages (sender, text, ts, kind) VALUES (?, '', ?, 'join')", id, now);
+    }
 
     this.query(
       "INSERT INTO heartbeats (id, ts) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET ts = excluded.ts",
@@ -234,7 +251,7 @@ export class ViewerPresence extends DurableObject {
   // against the highest message id it has already rendered.
   async getRecentMessages() {
     const rows = this.query(
-      "SELECT id, sender, text, ts FROM chat_messages ORDER BY id DESC LIMIT ?",
+      "SELECT id, sender, text, ts, kind FROM chat_messages ORDER BY id DESC LIMIT ?",
       CHAT_HISTORY_LIMIT
     ).toArray();
     return rows.reverse();
